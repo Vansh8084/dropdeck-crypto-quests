@@ -1,3 +1,4 @@
+
 // DropDeck Crypto Airdrop Tracker
 // All data is stored in local storage
 
@@ -424,6 +425,40 @@ function initProjects() {
     }
 }
 
+// Check and reset tasks at midnight
+function initTaskResetCheck() {
+    const lastReset = localStorage.getItem(STORAGE_KEYS.LAST_RESET);
+    const today = new Date().toDateString();
+    
+    if (lastReset !== today) {
+        // Reset tasks
+        const tasks = getStoredData(STORAGE_KEYS.MY_TASKS);
+        
+        tasks.forEach(project => {
+            project.tasks.forEach(task => {
+                task.completed = false;
+            });
+        });
+        
+        saveData(STORAGE_KEYS.MY_TASKS, tasks);
+        localStorage.setItem(STORAGE_KEYS.LAST_RESET, today);
+    }
+    
+    // Set up next check at midnight
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    
+    const timeUntilMidnight = tomorrow - now;
+    
+    setTimeout(() => {
+        initTaskResetCheck();
+        renderTasksTab();
+        updateTaskStats();
+    }, timeUntilMidnight);
+}
+
 // ===== UI HANDLERS =====
 
 // Initialize app
@@ -561,7 +596,7 @@ function setupInvestmentForm() {
     
     // Handle custom project selection
     projectSelect.addEventListener('change', function() {
-        const customFields = document.querySelectorAll('.custom-project-fields');
+        const customFields = document.querySelectorAll('#investment-modal .custom-project-fields');
         if (this.value === 'custom') {
             customFields.forEach(field => field.style.display = 'block');
         } else {
@@ -618,7 +653,7 @@ function setupInvestmentForm() {
         // Reset form and close modal
         form.reset();
         document.getElementById('investment-date').value = today;
-        document.querySelectorAll('.custom-project-fields').forEach(field => field.style.display = 'none');
+        document.querySelectorAll('#investment-modal .custom-project-fields').forEach(field => field.style.display = 'none');
         document.getElementById('investment-modal').classList.remove('active');
     });
 }
@@ -633,7 +668,7 @@ function setupEarningForm() {
     
     // Handle custom project selection
     projectSelect.addEventListener('change', function() {
-        const customFields = document.querySelectorAll('.custom-project-fields');
+        const customFields = document.querySelectorAll('#earning-modal .custom-project-fields');
         if (this.value === 'custom') {
             customFields.forEach(field => field.style.display = 'block');
         } else {
@@ -690,8 +725,54 @@ function setupEarningForm() {
         // Reset form and close modal
         form.reset();
         document.getElementById('earning-date').value = today;
-        document.querySelectorAll('.custom-project-fields').forEach(field => field.style.display = 'none');
+        document.querySelectorAll('#earning-modal .custom-project-fields').forEach(field => field.style.display = 'none');
         document.getElementById('earning-modal').classList.remove('active');
+    });
+}
+
+// Update project dropdowns for investment and earning forms
+function updateProjectDropdowns() {
+    const investmentProject = document.getElementById('investment-project');
+    const earningProject = document.getElementById('earning-project');
+    
+    // Clear existing options except the default and custom
+    investmentProject.innerHTML = '<option value="">Select a project</option><option value="custom">Custom...</option>';
+    earningProject.innerHTML = '<option value="">Select a project</option><option value="custom">Custom...</option>';
+    
+    // Get projects
+    const projects = getStoredData(STORAGE_KEYS.PROJECTS);
+    const joinedProjects = getStoredData(STORAGE_KEYS.JOINED_PROJECTS);
+    
+    // Add joined projects first
+    joinedProjects.forEach(projectId => {
+        const project = projects.find(p => p.id === projectId);
+        
+        if (project) {
+            const investOption = document.createElement('option');
+            investOption.value = project.id;
+            investOption.textContent = project.name;
+            investmentProject.appendChild(investOption);
+            
+            const earnOption = document.createElement('option');
+            earnOption.value = project.id;
+            earnOption.textContent = project.name;
+            earningProject.appendChild(earnOption);
+        }
+    });
+    
+    // Add other projects
+    projects.forEach(project => {
+        if (!joinedProjects.includes(project.id)) {
+            const investOption = document.createElement('option');
+            investOption.value = project.id;
+            investOption.textContent = project.name;
+            investmentProject.appendChild(investOption);
+            
+            const earnOption = document.createElement('option');
+            earnOption.value = project.id;
+            earnOption.textContent = project.name;
+            earningProject.appendChild(earnOption);
+        }
     });
 }
 
@@ -881,4 +962,669 @@ function renderMyProjects() {
     }
     
     // Hide empty state
-    emptyState.style.display = '
+    emptyState.style.display = 'none';
+    
+    // Render joined projects
+    joinedProjects.forEach(projectId => {
+        const project = projects.find(p => p.id === projectId);
+        
+        if (project) {
+            renderProjectCard(myProjectsGrid, project, true);
+        }
+    });
+}
+
+// Render project card
+function renderProjectCard(container, project, isJoined = false) {
+    // Create card
+    const card = document.createElement('div');
+    card.className = 'project-card';
+    card.setAttribute('data-project-id', project.id);
+    
+    // Add joined badge if joined
+    if (isJoined) {
+        const badge = document.createElement('div');
+        badge.className = 'joined-badge';
+        badge.textContent = 'Joined';
+        card.appendChild(badge);
+    }
+    
+    // Add card content
+    card.innerHTML += `
+        <div class="project-card-banner"></div>
+        <img src="${project.logo}" alt="${project.name}" class="project-card-logo">
+        <div class="project-card-content">
+            <h3 class="project-card-name">${project.name}</h3>
+            <p class="project-card-stats">${project.type} | ${project.tge}</p>
+            <div class="project-card-tag">${project.tags[0]}</div>
+        </div>
+    `;
+    
+    // Add click event to open project details
+    card.addEventListener('click', () => {
+        openProjectDetails(project);
+    });
+    
+    // Add card to container
+    container.appendChild(card);
+}
+
+// Render Hot Projects
+function renderHotProjects() {
+    const projects = getStoredData(STORAGE_KEYS.PROJECTS);
+    const joinedProjects = getStoredData(STORAGE_KEYS.JOINED_PROJECTS);
+    const hotProjectsGrid = document.getElementById('hot-projects-grid');
+    
+    // Clear grid
+    hotProjectsGrid.innerHTML = '';
+    
+    // Get projects with "soon" or "testnet" tags
+    const hotProjects = projects.filter(project => {
+        return project.tags.includes('soon') || project.tags.includes('testnet');
+    });
+    
+    // Render hot projects
+    hotProjects.forEach(project => {
+        renderProjectCard(hotProjectsGrid, project, joinedProjects.includes(project.id));
+    });
+}
+
+// Render All Projects
+function renderAllProjects() {
+    const projects = getStoredData(STORAGE_KEYS.PROJECTS);
+    const joinedProjects = getStoredData(STORAGE_KEYS.JOINED_PROJECTS);
+    const allProjectsGrid = document.getElementById('all-projects-grid');
+    
+    // Clear grid
+    allProjectsGrid.innerHTML = '';
+    
+    // Render all projects
+    projects.forEach(project => {
+        renderProjectCard(allProjectsGrid, project, joinedProjects.includes(project.id));
+    });
+}
+
+// Render Investment Tab
+function renderInvestmentTab() {
+    const investments = getStoredData(STORAGE_KEYS.INVESTMENTS);
+    const earnings = getStoredData(STORAGE_KEYS.EARNINGS);
+    const transactionList = document.getElementById('transaction-list');
+    const emptyHistory = document.getElementById('empty-history');
+    
+    // Calculate investment stats
+    const totalInvestment = investments.reduce((total, inv) => total + inv.amount, 0);
+    const totalEarnings = earnings.reduce((total, earn) => total + earn.amount, 0);
+    
+    // Set ROI
+    let roi = 0;
+    if (totalInvestment > 0) {
+        roi = (totalEarnings - totalInvestment) / totalInvestment * 100;
+    }
+    document.querySelector('.roi-value').textContent = `${roi.toFixed(2)}%`;
+    
+    // Set monthly value
+    // For demo purposes, we'll just divide total earnings by 12
+    const monthlyValue = totalEarnings / 12;
+    document.querySelector('.monthly-value').textContent = `$${monthlyValue.toFixed(2)}`;
+    
+    // Set totals
+    document.querySelector('.invest-total-value').textContent = `$${totalInvestment.toFixed(2)}`;
+    document.querySelector('.earn-total-value').textContent = `$${totalEarnings.toFixed(2)}`;
+    
+    // Clear transaction list
+    transactionList.innerHTML = '';
+    
+    // Combine and sort transactions
+    const transactions = [
+        ...investments.map(inv => ({
+            ...inv,
+            type: 'investment'
+        })),
+        ...earnings.map(earn => ({
+            ...earn,
+            type: 'earning'
+        }))
+    ];
+    
+    // Sort by date, newest first
+    transactions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    
+    if (transactions.length === 0) {
+        // Show empty state
+        emptyHistory.style.display = 'block';
+        return;
+    }
+    
+    // Hide empty state
+    emptyHistory.style.display = 'none';
+    
+    // Render transactions
+    transactions.forEach(transaction => {
+        // Format date
+        const date = new Date(transaction.date);
+        const formattedDate = `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+        
+        // Create transaction item
+        const item = document.createElement('div');
+        item.className = `transaction-item ${transaction.type}`;
+        
+        item.innerHTML = `
+            <img src="${transaction.projectImage}" alt="${transaction.projectName}" class="transaction-logo">
+            <div class="transaction-details">
+                <h4 class="transaction-title">${transaction.projectName}</h4>
+                <p class="transaction-date">${formattedDate}</p>
+                ${transaction.notes ? `<p class="transaction-notes">${transaction.notes}</p>` : ''}
+            </div>
+            <div class="transaction-amount">$${transaction.amount.toFixed(2)}</div>
+            <button class="transaction-delete" data-transaction-id="${transaction.id}" data-transaction-type="${transaction.type}"></button>
+        `;
+        
+        transactionList.appendChild(item);
+    });
+}
+
+// Render Explore Tab
+function renderExploreTab() {
+    const projects = getStoredData(STORAGE_KEYS.PROJECTS);
+    const joinedProjects = getStoredData(STORAGE_KEYS.JOINED_PROJECTS);
+    const exploreGrid = document.getElementById('explore-grid');
+    
+    // Clear grid
+    exploreGrid.innerHTML = '';
+    
+    // Render projects
+    projects.forEach(project => {
+        // Create explore item
+        const item = document.createElement('div');
+        item.className = 'explore-item';
+        
+        // Add badge if joined
+        if (joinedProjects.includes(project.id)) {
+            const badge = document.createElement('div');
+            badge.className = 'joined-badge';
+            badge.textContent = 'Joined';
+            item.appendChild(badge);
+        }
+        
+        // Check if project has "soon" tag
+        if (project.tags.includes('soon')) {
+            const badge = document.createElement('div');
+            badge.className = 'soon-badge';
+            badge.textContent = 'Soon';
+            item.appendChild(badge);
+        }
+        
+        // Add content
+        item.innerHTML += `
+            <img src="${project.logo}" alt="${project.name}" class="explore-logo">
+            <div class="explore-details">
+                <h3 class="explore-name">${project.name}</h3>
+                <p class="explore-description">${project.description}</p>
+                <div class="explore-tags">
+                    ${project.tags.map(tag => `<span class="explore-tag">${tag}</span>`).join('')}
+                </div>
+                <div class="explore-social">
+                    ${Object.entries(project.social).map(([platform, url]) => 
+                        `<a href="${url}" target="_blank" class="social-link">
+                            <div class="social-icon ${platform}-icon"></div>
+                        </a>`
+                    ).join('')}
+                </div>
+            </div>
+        `;
+        
+        // Add click event
+        item.addEventListener('click', () => {
+            openProjectDetails(project);
+        });
+        
+        exploreGrid.appendChild(item);
+    });
+}
+
+// Open project details
+function openProjectDetails(project) {
+    const modal = document.getElementById('project-details-modal');
+    const joinedProjects = getStoredData(STORAGE_KEYS.JOINED_PROJECTS);
+    const favorites = getStoredData(STORAGE_KEYS.FAVORITES);
+    
+    // Set project details
+    document.getElementById('project-detail-name').textContent = project.name;
+    document.getElementById('project-detail-logo').src = project.logo;
+    document.getElementById('project-detail-tge').textContent = project.tge;
+    document.getElementById('project-detail-funding').textContent = project.funding;
+    document.getElementById('project-detail-reward').textContent = project.reward;
+    document.getElementById('project-detail-type').textContent = project.type;
+    document.getElementById('project-detail-description').textContent = project.description;
+    
+    // Clear and set tags
+    const tagsContainer = document.getElementById('project-detail-tags');
+    tagsContainer.innerHTML = '';
+    
+    project.tags.forEach(tag => {
+        const tagEl = document.createElement('div');
+        tagEl.className = 'project-tag';
+        tagEl.textContent = tag;
+        tagsContainer.appendChild(tagEl);
+    });
+    
+    // Clear and set social links
+    const socialContainer = document.getElementById('project-detail-social');
+    socialContainer.innerHTML = '';
+    
+    Object.entries(project.social).forEach(([platform, url]) => {
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.className = 'project-social-link';
+        
+        const icon = document.createElement('div');
+        icon.className = `social-icon ${platform}-icon`;
+        
+        link.appendChild(icon);
+        socialContainer.appendChild(link);
+    });
+    
+    // Update buttons
+    const favoriteButton = document.getElementById('favorite-project-btn');
+    const addToMyProjectsButton = document.getElementById('add-to-my-projects-btn');
+    const joinProjectButton = document.getElementById('join-project-btn');
+    
+    // Set project ID attributes
+    favoriteButton.setAttribute('data-project-id', project.id);
+    addToMyProjectsButton.setAttribute('data-project-id', project.id);
+    joinProjectButton.setAttribute('data-project-id', project.id);
+    joinProjectButton.setAttribute('data-join-link', project.joinLink);
+    
+    // Update button text based on state
+    if (favorites.includes(project.id)) {
+        favoriteButton.innerHTML = `
+            <span class="action-icon favorite-icon"></span>
+            <span>Remove from Favorites</span>
+        `;
+    } else {
+        favoriteButton.innerHTML = `
+            <span class="action-icon favorite-icon"></span>
+            <span>Add to Favorites</span>
+        `;
+    }
+    
+    if (joinedProjects.includes(project.id)) {
+        addToMyProjectsButton.innerHTML = `
+            <span class="action-icon add-icon"></span>
+            <span>Remove from My Projects</span>
+        `;
+    } else {
+        addToMyProjectsButton.innerHTML = `
+            <span class="action-icon add-icon"></span>
+            <span>Add to My Projects</span>
+        `;
+    }
+    
+    // Show modal
+    modal.classList.add('active');
+}
+
+// Add/remove project from favorites
+function favoriteProject() {
+    const projectId = this.getAttribute('data-project-id');
+    const favorites = getStoredData(STORAGE_KEYS.FAVORITES);
+    
+    // Check if project is already in favorites
+    const index = favorites.indexOf(projectId);
+    
+    if (index !== -1) {
+        // Remove from favorites
+        favorites.splice(index, 1);
+        this.innerHTML = `
+            <span class="action-icon favorite-icon"></span>
+            <span>Add to Favorites</span>
+        `;
+    } else {
+        // Add to favorites
+        favorites.push(projectId);
+        this.innerHTML = `
+            <span class="action-icon favorite-icon"></span>
+            <span>Remove from Favorites</span>
+        `;
+    }
+    
+    // Save to local storage
+    saveData(STORAGE_KEYS.FAVORITES, favorites);
+}
+
+// Add/remove project from my projects
+function addToMyProjects() {
+    const projectId = this.getAttribute('data-project-id');
+    const joinedProjects = getStoredData(STORAGE_KEYS.JOINED_PROJECTS);
+    
+    // Check if project is already in my projects
+    const index = joinedProjects.indexOf(projectId);
+    
+    if (index !== -1) {
+        // Remove from my projects
+        joinedProjects.splice(index, 1);
+        this.innerHTML = `
+            <span class="action-icon add-icon"></span>
+            <span>Add to My Projects</span>
+        `;
+    } else {
+        // Add to my projects
+        joinedProjects.push(projectId);
+        this.innerHTML = `
+            <span class="action-icon add-icon"></span>
+            <span>Remove from My Projects</span>
+        `;
+    }
+    
+    // Save to local storage
+    saveData(STORAGE_KEYS.JOINED_PROJECTS, joinedProjects);
+    
+    // Update UI
+    renderDashboard();
+    updateProjectStats();
+}
+
+// Open join link
+function openJoinLink() {
+    const joinLink = this.getAttribute('data-join-link');
+    window.open(joinLink, '_blank');
+}
+
+// Render Tasks Tab
+function renderTasksTab() {
+    const tasks = getStoredData(STORAGE_KEYS.MY_TASKS);
+    const joinedProjects = getStoredData(STORAGE_KEYS.JOINED_PROJECTS);
+    const projects = getStoredData(STORAGE_KEYS.PROJECTS);
+    const tasksList = document.getElementById('tasks-list');
+    const emptyTasks = document.getElementById('empty-tasks');
+    
+    // Clear tasks list
+    tasksList.innerHTML = '';
+    
+    // Check if there are any joined projects
+    if (joinedProjects.length === 0) {
+        // Show empty state
+        emptyTasks.style.display = 'block';
+        return;
+    }
+    
+    // Hide empty state
+    emptyTasks.style.display = 'none';
+    
+    // Render tasks for each joined project
+    joinedProjects.forEach(projectId => {
+        const project = projects.find(p => p.id === projectId);
+        
+        if (!project) return;
+        
+        // Create project container
+        const projectContainer = document.createElement('div');
+        projectContainer.className = 'task-project';
+        
+        // Create project header
+        const projectHeader = document.createElement('div');
+        projectHeader.className = 'task-project-header';
+        
+        // Project logo
+        const projectLogo = document.createElement('img');
+        projectLogo.className = 'task-project-logo';
+        projectLogo.src = project.logo;
+        projectLogo.alt = project.name;
+        
+        // Project info
+        const projectInfo = document.createElement('div');
+        projectInfo.className = 'task-project-info';
+        
+        // Project tasks
+        const projectTasks = tasks.find(t => t.projectId === projectId);
+        let taskCount = 0;
+        let completedCount = 0;
+        
+        if (projectTasks) {
+            taskCount = projectTasks.tasks.length;
+            completedCount = projectTasks.tasks.filter(t => t.completed).length;
+        }
+        
+        // Add project name and task count
+        projectInfo.innerHTML = `
+            <h3 class="task-project-name">${project.name}</h3>
+            <p class="task-count">${completedCount}/${taskCount} tasks completed</p>
+        `;
+        
+        // Add task button
+        const addTaskButton = document.createElement('button');
+        addTaskButton.className = 'add-task-button';
+        addTaskButton.textContent = 'Add Task';
+        addTaskButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openAddTaskModal(project);
+        });
+        
+        // Assemble project header
+        projectHeader.appendChild(projectLogo);
+        projectHeader.appendChild(projectInfo);
+        projectHeader.appendChild(addTaskButton);
+        projectContainer.appendChild(projectHeader);
+        
+        // Check if project has any tasks
+        if (projectTasks && projectTasks.tasks.length > 0) {
+            // Create task list
+            const taskList = document.createElement('div');
+            taskList.className = 'task-list';
+            
+            // Render tasks
+            projectTasks.tasks.forEach(task => {
+                // Create task item
+                const taskItem = document.createElement('div');
+                taskItem.className = `task-item ${task.completed ? 'completed' : ''}`;
+                
+                // Task checkbox
+                const taskCheckbox = document.createElement('div');
+                taskCheckbox.className = `task-checkbox ${task.completed ? 'checked' : ''}`;
+                taskCheckbox.setAttribute('data-project-id', projectId);
+                taskCheckbox.setAttribute('data-task-id', task.id);
+                
+                // Task content
+                const taskContent = document.createElement('div');
+                taskContent.className = 'task-content';
+                taskContent.innerHTML = `
+                    <h4 class="task-name">${task.name}</h4>
+                    ${task.description ? `<p class="task-description">${task.description}</p>` : ''}
+                `;
+                
+                // Task actions
+                const taskActions = document.createElement('div');
+                taskActions.className = 'task-actions';
+                
+                // Delete button
+                const deleteButton = document.createElement('div');
+                deleteButton.className = 'task-delete';
+                deleteButton.setAttribute('data-project-id', projectId);
+                deleteButton.setAttribute('data-task-id', task.id);
+                
+                taskActions.appendChild(deleteButton);
+                
+                // Assemble task item
+                taskItem.appendChild(taskCheckbox);
+                taskItem.appendChild(taskContent);
+                taskItem.appendChild(taskActions);
+                
+                taskList.appendChild(taskItem);
+            });
+            
+            // Add task list to project container
+            projectContainer.appendChild(taskList);
+            
+            // Add progress bar
+            const progressBar = document.createElement('div');
+            progressBar.className = 'project-progress';
+            
+            const progressFill = document.createElement('div');
+            progressFill.className = 'project-progress-fill';
+            
+            // Calculate progress percentage
+            const progressPercentage = taskCount > 0 ? (completedCount / taskCount) * 100 : 0;
+            progressFill.style.width = `${progressPercentage}%`;
+            
+            progressBar.appendChild(progressFill);
+            projectContainer.appendChild(progressBar);
+            
+            // Add "Done" badge if all tasks are completed
+            if (taskCount > 0 && completedCount === taskCount) {
+                const doneBadge = document.createElement('div');
+                doneBadge.className = 'done-badge';
+                doneBadge.textContent = 'Done';
+                projectContainer.appendChild(doneBadge);
+            }
+        } else {
+            // No tasks message
+            const noTasks = document.createElement('p');
+            noTasks.className = 'task-count';
+            noTasks.style.textAlign = 'center';
+            noTasks.style.padding = '1rem';
+            noTasks.textContent = 'No tasks added yet. Click "Add Task" to create your first task.';
+            
+            projectContainer.appendChild(noTasks);
+        }
+        
+        // Add project container to tasks list
+        tasksList.appendChild(projectContainer);
+    });
+}
+
+// Open add task modal
+function openAddTaskModal(project) {
+    const modal = document.getElementById('add-task-modal');
+    
+    // Set project info
+    document.getElementById('task-project-name').textContent = project.name;
+    document.getElementById('task-project-id').value = project.id;
+    
+    // Show modal
+    modal.classList.add('active');
+}
+
+// Toggle task completion
+function toggleTaskCompletion(projectId, taskId) {
+    const tasks = getStoredData(STORAGE_KEYS.MY_TASKS);
+    
+    // Find project
+    const projectIndex = tasks.findIndex(p => p.projectId === projectId);
+    
+    if (projectIndex === -1) return;
+    
+    // Find task
+    const taskIndex = tasks[projectIndex].tasks.findIndex(t => t.id === taskId);
+    
+    if (taskIndex === -1) return;
+    
+    // Toggle completion
+    tasks[projectIndex].tasks[taskIndex].completed = !tasks[projectIndex].tasks[taskIndex].completed;
+    
+    // Save to local storage
+    saveData(STORAGE_KEYS.MY_TASKS, tasks);
+    
+    // Update UI
+    renderTasksTab();
+    updateTaskStats();
+}
+
+// Delete task
+function deleteTask(projectId, taskId) {
+    const tasks = getStoredData(STORAGE_KEYS.MY_TASKS);
+    
+    // Find project
+    const projectIndex = tasks.findIndex(p => p.projectId === projectId);
+    
+    if (projectIndex === -1) return;
+    
+    // Find task
+    const taskIndex = tasks[projectIndex].tasks.findIndex(t => t.id === taskId);
+    
+    if (taskIndex === -1) return;
+    
+    // Remove task
+    tasks[projectIndex].tasks.splice(taskIndex, 1);
+    
+    // If no tasks left, remove project from tasks
+    if (tasks[projectIndex].tasks.length === 0) {
+        tasks.splice(projectIndex, 1);
+    }
+    
+    // Save to local storage
+    saveData(STORAGE_KEYS.MY_TASKS, tasks);
+    
+    // Update UI
+    renderTasksTab();
+    updateTaskStats();
+}
+
+// Delete transaction
+function deleteTransaction(transactionId, transactionType) {
+    // Determine storage key based on transaction type
+    const storageKey = transactionType === 'investment' ? 
+        STORAGE_KEYS.INVESTMENTS : STORAGE_KEYS.EARNINGS;
+    
+    // Get transactions
+    const transactions = getStoredData(storageKey);
+    
+    // Find transaction
+    const transactionIndex = transactions.findIndex(t => t.id === transactionId);
+    
+    if (transactionIndex === -1) return;
+    
+    // Remove transaction
+    transactions.splice(transactionIndex, 1);
+    
+    // Save to local storage
+    saveData(storageKey, transactions);
+    
+    // Update UI
+    renderInvestmentTab();
+    updateProjectStats();
+}
+
+// Update project stats
+function updateProjectStats() {
+    const joinedProjects = getStoredData(STORAGE_KEYS.JOINED_PROJECTS);
+    const projects = getStoredData(STORAGE_KEYS.PROJECTS);
+    
+    // Update joined projects count
+    document.querySelector('.joined-projects').textContent = joinedProjects.length;
+    document.querySelector('.total-projects').textContent = projects.length;
+    
+    // Update dashboard stats
+    updateDashboardStats();
+}
+
+// Update task stats
+function updateTaskStats() {
+    const tasks = getStoredData(STORAGE_KEYS.MY_TASKS);
+    
+    // Calculate task stats
+    let completedTasks = 0;
+    let totalTasks = 0;
+    
+    tasks.forEach(project => {
+        project.tasks.forEach(task => {
+            totalTasks++;
+            if (task.completed) {
+                completedTasks++;
+            }
+        });
+    });
+    
+    // Update task progress bar
+    const progressFill = document.getElementById('task-progress-fill');
+    if (progressFill) {
+        const progressPercentage = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+        progressFill.style.width = `${progressPercentage}%`;
+    }
+    
+    // Update task counts
+    document.getElementById('tasks-completed').textContent = completedTasks;
+    document.getElementById('tasks-total').textContent = totalTasks;
+    document.querySelector('.completed-tasks').textContent = completedTasks;
+    document.querySelector('.total-tasks').textContent = totalTasks;
+}
